@@ -20,20 +20,21 @@ package etcd
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	klog "k8s.io/klog/v2"
+	"k8s.io/klog/v2"
 
 	"tkestack.io/kstone/pkg/controllers/util"
 )
 
 type TLSGetter interface {
 	Config(path string, sc string) (*transport.TLSInfo, error)
+	Clean(clusterName string) error
 }
 
 type TLSSecretCacher struct {
@@ -49,24 +50,35 @@ func NewTLSSecretGetter(clientbuilder util.ClientBuilder) TLSGetter {
 	return &tlsSecretCacher
 }
 
-func (tsc *TLSSecretCacher) Config(path string, sc string) (*transport.TLSInfo, error) {
-	if sc == "" {
-		return nil, nil
-	}
-	items := strings.Split(sc, "/")
-	namespace := "default"
+func (tsc *TLSSecretCacher) getTLSKey(path string, sc string) (string, string, string, error) {
 	secretName := sc
+	namespace := "kstone"
+
+	items := strings.Split(secretName, "/")
 	if len(items) > 2 {
-		return nil, errors.New("invalid secretname")
+		return "", "", "", fmt.Errorf("invalid secret name")
 	} else if len(items) == 2 {
 		namespace = items[0]
 		secretName = items[1]
 	}
 
+	tlsKey := fmt.Sprintf("%s_%s", path, secretName)
+
+	return namespace, secretName, tlsKey, nil
+}
+
+func (tsc *TLSSecretCacher) Config(path string, sc string) (*transport.TLSInfo, error) {
+	namespace, secretName, tlsKey, err := tsc.getTLSKey(path, sc)
+	if err != nil {
+		return nil, err
+	}
+	if secretName == "" {
+		return nil, nil
+	}
+
 	tsc.mutex.Lock()
 	defer tsc.mutex.Unlock()
 
-	tlsKey := path + "_" + secretName
 	if tls, found := tsc.tlsMap[tlsKey]; found {
 		return tls, nil
 	}
@@ -93,4 +105,23 @@ func (tsc *TLSSecretCacher) Config(path string, sc string) (*transport.TLSInfo, 
 
 	tsc.tlsMap[tlsKey] = cfg
 	return cfg, nil
+}
+
+func (tsc *TLSSecretCacher) Clean(clusterName string) error {
+	if clusterName != "" {
+		tsc.mutex.Lock()
+		defer tsc.mutex.Unlock()
+
+		keyList := make([]string, 0)
+		for key := range tsc.tlsMap {
+			if strings.Contains(key, clusterName) {
+				keyList = append(keyList, key)
+			}
+		}
+
+		for _, key := range keyList {
+			delete(tsc.tlsMap, key)
+		}
+	}
+	return nil
 }

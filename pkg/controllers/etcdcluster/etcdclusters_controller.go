@@ -121,6 +121,7 @@ func NewEtcdclusterController(
 		UpdateFunc: func(old, new interface{}) {
 			controller.enqueueEtcdcluster(new)
 		},
+		DeleteFunc: controller.enqueueEtcdcluster,
 	})
 
 	return controller
@@ -200,7 +201,11 @@ func (c *ClusterController) syncEtcdCluster(key string) error {
 		// The EtcdCluster resource may no longer exist, in which case we stop
 		// processing.
 		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("EtcdCluster '%s' in work queue no longer exists", key))
+			err = c.handleClusterDelete(name)
+			if err != nil {
+				klog.Errorf("failed to handle the deleted cluster, err is %v", err)
+				return err
+			}
 			return nil
 		}
 		return err
@@ -593,4 +598,13 @@ func (c *ClusterController) handleClusterStatus(
 	cluster.Status = status
 
 	return cluster, nil
+}
+
+func (c *ClusterController) handleClusterDelete(clusterName string) error {
+	err := c.tlsGetter.Clean(clusterName)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
