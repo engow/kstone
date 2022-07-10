@@ -21,6 +21,8 @@ package etcdcluster
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof" // import pprof
 	"reflect"
 	"strconv"
 	"time"
@@ -157,6 +159,13 @@ func (c *ClusterController) Run(threadiness int, stopCh <-chan struct{}) error {
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
+
+	go func() {
+		err := http.ListenAndServe(":9090", nil)
+		if err != nil {
+			klog.Errorf("listenAndServer error is %v", err)
+		}
+	}()
 
 	klog.Info("Started workers")
 	<-stopCh
