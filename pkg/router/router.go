@@ -209,7 +209,7 @@ func EtcdKeyList(ctx *gin.Context) {
 
 	config.Endpoints = []string{cluster.Status.ServiceName}
 
-	klog.Infof("endpoint: %s, ca: %s, cert: %s, key: %s", cluster.Status.ServiceName, config.CaCert, config.Cert, config.Key)
+	klog.Infof("endpoint: %s", cluster.Status.ServiceName)
 	client, err := etcd.NewClientv3(config)
 	if err != nil {
 		klog.Errorf(err.Error())

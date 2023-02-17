@@ -20,6 +20,8 @@ package etcd
 
 import (
 	"context"
+	tls2 "crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -29,7 +31,6 @@ import (
 	"strings"
 	"time"
 
-	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv2 "go.etcd.io/etcd/client/v2"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	klog "k8s.io/klog/v2"
@@ -89,29 +90,31 @@ func newClientv3Config(config *ClientConfig) (*clientv3.Config, error) {
 		Password:             config.Password,
 	}
 	// set tls if any one tls option set
-	var cfgtls *transport.TLSInfo
-	tlsinfo := transport.TLSInfo{}
-	if config.Cert != "" {
-		tlsinfo.CertFile = config.Cert
-		cfgtls = &tlsinfo
-	}
-
-	if config.Key != "" {
-		tlsinfo.KeyFile = config.Key
-		cfgtls = &tlsinfo
-	}
-
-	if config.CaCert != "" {
-		tlsinfo.TrustedCAFile = config.CaCert
-		cfgtls = &tlsinfo
-	}
-
-	if cfgtls != nil {
-		clientTLS, err := cfgtls.ClientConfig()
+	var tls *tls2.Config
+	if config.CertData != nil && config.KeyData != nil {
+		certificate, err := tls2.X509KeyPair(config.CertData, config.KeyData)
 		if err != nil {
 			return nil, err
 		}
-		cfg.TLS = clientTLS
+
+		tls = &tls2.Config{
+			Certificates: []tls2.Certificate{certificate},
+		}
+	}
+
+	if config.CaCertData != nil {
+		if tls == nil {
+			tls = &tls2.Config{}
+		}
+
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(config.CaCertData)
+
+		tls.RootCAs = pool
+	}
+
+	if tls != nil {
+		cfg.TLS = tls
 		cfg.TLS.InsecureSkipVerify = true
 
 	}
@@ -211,7 +214,7 @@ func MemberHealthy(endpoint string, cli *ClientConfig) (bool, error) {
 		klog.Errorf("failed to get healthcheck backend,method %s,err is %v", HealthCheckHTTP, err)
 		return false, err
 	}
-	err = backend.Init(cli.CaCert, cli.Cert, cli.Key, endpoint)
+	err = backend.Init(cli.CaCertData, cli.CertData, cli.KeyData, endpoint)
 	if err != nil {
 		klog.Errorf("failed to init healthcheck client,endpoint is %s,err is %v", endpoint, err)
 		return false, err
@@ -244,7 +247,7 @@ func NewShortConnectionClientv2(config *ClientConfig) (*clientv2.Client, error) 
 
 // newClientv2Config generates config of etcd client v2
 func newClientv2Config(config *ClientConfig) (*clientv2.Config, error) {
-	tr, err := getTransport(config.DialTimeout, DefaultCommandTimeOut, config.SecureConfig, true)
+	tr, err := getTransport(config.DialTimeout, DefaultCommandTimeOut, config.SecureConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -258,38 +261,34 @@ func newClientv2Config(config *ClientConfig) (*clientv2.Config, error) {
 }
 
 // getTransport gets *http.Transport
-func getTransport(dialTimeout, totalTimeout time.Duration, scfg SecureConfig, short bool) (*http.Transport, error) {
-	cafile := scfg.CaCert
-	certfile := scfg.Cert
-	keyfile := scfg.Key
+func getTransport(dialTimeout, totalTimeout time.Duration, scfg SecureConfig) (*http.Transport, error) {
 
-	tls := transport.TLSInfo{
-		CertFile:           certfile,
-		KeyFile:            keyfile,
-		TrustedCAFile:      cafile,
-		InsecureSkipVerify: true,
+	certificate, err := tls2.X509KeyPair(scfg.CertData, scfg.KeyData)
+	if err != nil {
+		return nil, err
 	}
 
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(scfg.CaCertData)
+
+	config := &tls2.Config{
+		Certificates: []tls2.Certificate{certificate},
+		RootCAs:      pool,
+	}
 	if totalTimeout != 0 && totalTimeout < dialTimeout {
 		dialTimeout = totalTimeout
 	}
-	if !short {
-		return transport.NewTransport(tls, dialTimeout)
-	}
-	config, err := tls.ClientConfig()
-	if err != nil {
-		klog.Errorf("failed to get etcd server config,err is %v", err)
-		return nil, err
+
+	dialer := &net.Dialer{
+		Timeout:   DefaultDialTimeout,
+		KeepAlive: DefaultKeepAliveTime,
 	}
 	return &http.Transport{
-		Dial: (&net.Dialer{
-			Timeout:   DefaultDialTimeout,
-			KeepAlive: DefaultKeepAliveTime,
-		}).Dial,
 		TLSHandshakeTimeout: DefaultDialTimeout,
 		TLSClientConfig:     config,
 		MaxIdleConnsPerHost: 1,
 		DisableKeepAlives:   true,
+		Dial:                dialer.Dial,
 	}, nil
 }
 

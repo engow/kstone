@@ -63,14 +63,14 @@ type ClientConfig struct {
 }
 
 type SecureConfig struct {
-	// Cert is a cert for authentication.
-	Cert string
+	// CertData is a cert data for authentication.
+	CertData []byte
 
-	// Key is a key for authentication.
-	Key string
+	// KeyData is a key data for authentication.
+	KeyData []byte
 
-	// CaCert is a CA cert for authentication.
-	CaCert string
+	// CaCertData is a CA cert data for authentication.
+	CaCertData []byte
 
 	// Username is a user name for authentication.
 	Username string
@@ -123,18 +123,18 @@ func (t *ClientConfigSecret) New(path string, sc string) (*ClientConfig, error) 
 	ca := secret.Data[CliCAFile]
 	username := secret.Data[CliUsername]
 	password := secret.Data[CliPassword]
-	caFile, certFile, keyFile, err := GetTLSConfigPath(path, cert, key, ca)
+
 	if err != nil {
 		klog.Errorf("failed to get tls config path, name %s,err is %v", secretName, err)
 		return nil, err
 	}
 	return &ClientConfig{
 		SecureConfig: SecureConfig{
-			CaCert:   caFile,
-			Cert:     certFile,
-			Key:      keyFile,
-			Username: string(username),
-			Password: string(password),
+			Username:   string(username),
+			Password:   string(password),
+			CaCertData: ca,
+			CertData:   cert,
+			KeyData:    key,
 		},
 	}, nil
 }

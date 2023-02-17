@@ -262,7 +262,7 @@ func (bak *Server) initEtcdBackup(cluster *kstonev1alpha2.EtcdCluster) (*backupa
 	if config.Username != "" {
 		backup.Spec.BasicAuthSecret = secretName
 	}
-	if config.CaCert != "" {
+	if len(config.CaCertData) > 0 {
 		backup.Spec.ClientTLSSecret = secretName
 		backup.Spec.InsecureSkipVerify = true
 	}

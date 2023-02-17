@@ -34,7 +34,7 @@ import (
 type Health interface {
 
 	// Init creates etcd healthcheck client
-	Init(ca, cert, key, endpoint string) error
+	Init(ca, cert, key []byte, endpoint string) error
 
 	// IsHealthy checks etcd health info
 	IsHealthy() error
@@ -72,22 +72,18 @@ func NewEtcdHealthCheckBackend(method HealthCheckMethod) (Health, error) {
 }
 
 // Init creates etcd healthcheck client
-func (c *HealthCheckHTTPClient) Init(ca, cert, key, endpoint string) error {
+func (c *HealthCheckHTTPClient) Init(ca, cert, key []byte, endpoint string) error {
 	c.endpoint = endpoint
 	tr := &http.Transport{}
 	tr.MaxIdleConns = 1
 	tr.DisableKeepAlives = true
-	if ca != "" && cert != "" && key != "" {
-		caCert, err := ioutil.ReadFile(ca)
-		if err != nil {
-			return err
-		}
-		keyPair, err := tls.LoadX509KeyPair(cert, key)
+	if len(ca) > 0 && len(cert) > 0 && len(key) > 0 {
+		keyPair, err := tls.X509KeyPair(cert, key)
 		if err != nil {
 			return err
 		}
 		caPool := x509.NewCertPool()
-		caPool.AppendCertsFromPEM(caCert)
+		caPool.AppendCertsFromPEM(ca)
 
 		tlsConfig := &tls.Config{
 			Certificates: []tls.Certificate{keyPair},

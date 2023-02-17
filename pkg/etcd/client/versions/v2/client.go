@@ -20,11 +20,12 @@ package v2
 
 import (
 	"context"
+	tls2 "crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
 
-	"github.com/coreos/etcd/pkg/transport"
 	clientv2 "go.etcd.io/etcd/client/v2"
 	klog "k8s.io/klog/v2"
 
@@ -65,7 +66,7 @@ func (c *V2) Status(endpoint string) (*client.Member, error) {
 		return nil, err
 	}
 	config := c.ctx.Config
-	err = backend.Init(config.CaCert, config.Cert, config.Key, endpoint)
+	err = backend.Init(config.CaCertData, config.CertData, config.KeyData, endpoint)
 	if err != nil {
 		klog.Errorf("failed to init version client,endpoint is %s,err is %v", endpoint, err)
 		return nil, err
@@ -107,33 +108,37 @@ func newClientCfg(ctx *client.VersionContext) (*clientv2.Config, error) {
 		Username:  config.Username,
 		Password:  config.Password,
 	}
-	var cfgtls *transport.TLSInfo
-	tlsinfo := transport.TLSInfo{}
-	if ctx.Config.Cert != "" {
-		tlsinfo.CertFile = config.Cert
-		cfgtls = &tlsinfo
-	}
 
-	if config.Key != "" {
-		tlsinfo.KeyFile = config.Key
-		cfgtls = &tlsinfo
-	}
-
-	if config.CaCert != "" {
-		tlsinfo.TrustedCAFile = config.CaCert
-		cfgtls = &tlsinfo
-	}
-
-	if cfgtls != nil {
-		clientTLS, err := cfgtls.ClientConfig()
+	var clientTLS *tls2.Config
+	if config.CertData != nil && config.KeyData != nil {
+		certificate, err := tls2.X509KeyPair(config.CertData, config.KeyData)
 		if err != nil {
 			return nil, err
 		}
+
+		clientTLS = &tls2.Config{
+			Certificates: []tls2.Certificate{certificate},
+		}
+	}
+
+	if config.CaCertData != nil {
+		if clientTLS == nil {
+			clientTLS = &tls2.Config{}
+		}
+
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(config.CaCertData)
+
+		clientTLS.RootCAs = pool
+	}
+
+	if clientTLS != nil {
+		dialer := &net.Dialer{
+			Timeout:   config.DialKeepAliveTimeout,
+			KeepAlive: config.DialKeepAliveTime,
+		}
 		cfg.Transport = &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout:   config.DialKeepAliveTimeout,
-				KeepAlive: config.DialKeepAliveTime,
-			}).Dial,
+			Dial:                dialer.Dial,
 			TLSHandshakeTimeout: config.DialTimeout,
 			TLSClientConfig:     clientTLS,
 			MaxIdleConnsPerHost: 1,
