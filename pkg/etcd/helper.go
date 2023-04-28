@@ -247,7 +247,7 @@ func NewShortConnectionClientv2(config *ClientConfig) (*clientv2.Client, error) 
 
 // newClientv2Config generates config of etcd client v2
 func newClientv2Config(config *ClientConfig) (*clientv2.Config, error) {
-	tr, err := getTransport(config.DialTimeout, DefaultCommandTimeOut, config.SecureConfig)
+	tr, err := getTransport(config.SecureConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +261,7 @@ func newClientv2Config(config *ClientConfig) (*clientv2.Config, error) {
 }
 
 // getTransport gets *http.Transport
-func getTransport(dialTimeout, totalTimeout time.Duration, scfg SecureConfig) (*http.Transport, error) {
-
+func getTransport(scfg SecureConfig) (*http.Transport, error) {
 	certificate, err := tls2.X509KeyPair(scfg.CertData, scfg.KeyData)
 	if err != nil {
 		return nil, err
@@ -274,9 +273,6 @@ func getTransport(dialTimeout, totalTimeout time.Duration, scfg SecureConfig) (*
 	config := &tls2.Config{
 		Certificates: []tls2.Certificate{certificate},
 		RootCAs:      pool,
-	}
-	if totalTimeout != 0 && totalTimeout < dialTimeout {
-		dialTimeout = totalTimeout
 	}
 
 	dialer := &net.Dialer{
